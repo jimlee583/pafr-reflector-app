@@ -27,18 +27,6 @@ export function GeometryView({ result, feedScanAngleRad }: Props) {
     scan: { skyBeamAngleRad },
   } = result;
 
-  const path = useMemo(() => {
-    const nSeg = 60;
-    const pts: string[] = [];
-    for (let i = 0; i <= nSeg; i++) {
-      const t = i / nSeg;
-      const r = -D / 2 + t * D;
-      const z = parabolaZ(r, F);
-      pts.push(`${z.toFixed(4)},${r.toFixed(4)}`);
-    }
-    return "M " + pts.join(" L ");
-  }, [D, F]);
-
   // Compute world-space bounding box for the drawing.
   const zMin = -0.15 * F;
   const zMax = Math.max(F, depthM) * 1.35;
@@ -56,6 +44,24 @@ export function GeometryView({ result, feedScanAngleRad }: Props) {
     const sy = PAD + (xExtent - x) * scale;
     return { sx, sy };
   };
+
+  // Build the dish path directly in SVG px coordinates so the stroke width
+  // stays in px regardless of world scale (a transform-based scale would
+  // multiply strokeWidth by `scale`, turning a 2.5px line into a huge
+  // filled wedge for large dishes).
+  const path = useMemo(() => {
+    const nSeg = 80;
+    const pts: string[] = [];
+    for (let i = 0; i <= nSeg; i++) {
+      const t = i / nSeg;
+      const r = -D / 2 + t * D;
+      const z = parabolaZ(r, F);
+      const p = w2s(z, r);
+      pts.push(`${p.sx.toFixed(2)},${p.sy.toFixed(2)}`);
+    }
+    return "M " + pts.join(" L ");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [D, F, scale, zMin, xExtent]);
 
   const svgW = targetW;
   const svgH = worldH * scale + 2 * PAD;
@@ -139,7 +145,8 @@ export function GeometryView({ result, feedScanAngleRad }: Props) {
           fill="none"
           stroke="var(--accent)"
           strokeWidth={2.5}
-          transform={`translate(${PAD - zMin * scale}, ${PAD + xExtent * scale}) scale(${scale}, ${-scale})`}
+          strokeLinejoin="round"
+          strokeLinecap="round"
         />
         {/* Rim rays */}
         <path d={rimRayTop} stroke="var(--text-dim)" strokeDasharray="3 3" fill="none" />
