@@ -25,6 +25,8 @@ Every KPI shown is a **first-order, closed-form** estimate. Assumptions:
 
 These are appropriate for early-stage exploration and teaching. They will disagree with a full physical-optics / method-of-moments solver, especially at wide scan or low f/D.
 
+For deeper derivations behind each KPI, see [`docs/physics-notes.md`](docs/physics-notes.md).
+
 ## Getting started
 
 ```bash
