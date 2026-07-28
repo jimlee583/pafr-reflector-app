@@ -49,17 +49,216 @@ the axisymmetric reflector integrals. Reference:
 
 ## 3. Spillover vs illumination trade
 
-TBD — Silver's classic formulas
+The reflector sees the feed through a circular rim of half-angle
+$\psi_0$, and the two big efficiencies that come out of that geometry
+— spillover $\eta_s$ and illumination (taper) $\eta_i$ — pull in
+opposite directions as $\psi_0$ changes. Their product $\eta_s\,\eta_i$
+is the optical aperture efficiency (before blockage), and it has an
+interior optimum in $f/D$. This section is the story behind the
+"Efficiency vs f/D" trade plot and the spillover / illumination /
+aperture-efficiency KPIs.
+
+### The feed intensity $P(\psi)$
+
+Everything below is written in terms of the $\phi$-averaged feed
+intensity
 
 $$
-\eta_s = \frac{\int_{0}^{\psi_0} P(\psi)\,\sin\psi\,d\psi}{\int_{0}^{\pi} P(\psi)\,\sin\psi\,d\psi},
+P(\psi) \;=\; \bigl\langle |F(\theta = \psi,\,\phi)|^2 \bigr\rangle_{\phi},
+$$
+
+which is `feedIntensityAxi(psi, feed)` in
+[`src/models/feed.ts`](../src/models/feed.ts). We identify $\theta$
+(the feed's own angle from its boresight) with $\psi$ (the angle from
+the focus, off the reflector axis) because for a centered, unscanned
+feed sitting at the focus the two axes coincide. Peak is at
+$\psi = 0$; the normalization of $P$ cancels in every ratio below.
+
+### Spillover $\eta_s$: how much of the feed lands on the dish
+
+Silver's classic form:
+
+$$
+\eta_s \;=\;
+\frac{\int_{0}^{\psi_0} P(\psi)\,\sin\psi\,d\psi}
+     {\int_{0}^{\pi/2} P(\psi)\,\sin\psi\,d\psi}.
+$$
+
+Numerator is the feed power the dish subtends
+($0 \le \psi \le \psi_0$); denominator is the total feed power. The
+upper limit on the total is $\pi/2$, not $\pi$: the element voltage
+pattern is $\cos^{n}\theta$ and snaps to zero at $\theta \ge \pi/2$,
+so there is no back-hemisphere power to count.
+
+```26:44:src/models/efficiency.ts
+export function spilloverEfficiency(
+  feed: FeedInputs,
+  rimHalfAngleRad: number,
+): number {
+  const captured = simpson(
+    (psi) => feedIntensityAxi(psi, feed) * Math.sin(psi),
+    EPS,
+    rimHalfAngleRad,
+    200,
+  );
+  const total = simpson(
+    (psi) => feedIntensityAxi(psi, feed) * Math.sin(psi),
+    EPS,
+    Math.PI / 2, // element pattern kills the back hemisphere
+    200,
+  );
+  if (total <= 0) return 0;
+  return clamp01(captured / total);
+}
+```
+
+Deeper dishes have larger $\psi_0$ (bigger rim, seen from the focus),
+so they capture more of $P(\psi)$ and $\eta_s$ climbs. In the limit
+$\psi_0 \to \pi/2$ ($f/D = 0.25$, focus sitting in the aperture
+plane), the dish sees the entire forward hemisphere and
+$\eta_s \to 1$.
+
+### Illumination $\eta_i$: how uniformly it lands
+
+$$
+\eta_i \;=\;
+\frac{2\cot^2(\psi_0/2)\,
+      \bigl|\int_0^{\psi_0}\sqrt{P(\psi)}\,\tan(\psi/2)\,d\psi\bigr|^2}
+     {\int_0^{\psi_0} P(\psi)\,\sin\psi\,d\psi}.
+$$
+
+This is the aperture-plane taper efficiency: it compares the actual
+tapered aperture field to a uniformly-illuminated one of the same
+total power. It is $\le 1$, with equality only for a perfectly flat
+aperture. The $\sqrt{P}$ in the numerator is a voltage (not power)
+integral, because taper efficiency cares about the coherent field
+sum across the aperture; the $\tan(\psi/2)$ and $\cot^2(\psi_0/2)$
+weights come from mapping the feed's solid-angle element
+$\sin\psi\,d\psi$ onto an equal-area aperture element (see §1 /
+`parabolaZ`).
+
+```46:66:src/models/efficiency.ts
+export function illuminationEfficiency(
+  feed: FeedInputs,
+  rimHalfAngleRad: number,
+): number {
+  const num = simpson(
+    (psi) => Math.sqrt(feedIntensityAxi(psi, feed)) * Math.tan(psi / 2),
+    EPS,
+    rimHalfAngleRad,
+    200,
+  );
+  const den = simpson(
+    (psi) => feedIntensityAxi(psi, feed) * Math.sin(psi),
+    EPS,
+    rimHalfAngleRad,
+    200,
+  );
+  if (den <= 0) return 0;
+  const cot = 1 / Math.tan(rimHalfAngleRad / 2);
+  const eta = 2 * cot * cot * (num * num) / den;
+  return clamp01(eta);
+}
+```
+
+Deep dishes ($\psi_0$ large) sample $P(\psi)$ out into its shoulders
+where it has fallen off substantially — the rim is dark, the taper
+is steep, $\eta_i$ drops. Shallow dishes ($\psi_0$ small) only touch
+the near-peak part of $P$, so the aperture is close to uniformly
+lit and $\eta_i \to 1$.
+
+### The aperture illumination plot
+
+Under the hood of the "Aperture illumination (radial cut)" plot is
+the mapping from focus angle $\psi$ to aperture radius $r$ and the
+$1/\rho^2$ space-loss factor from focus to reflector:
+
+$$
+\psi(r) \;=\; 2\arctan\!\bigl(r / (2F)\bigr),
 \qquad
-\eta_i = \frac{2\cot^2(\psi_0/2)\,\bigl|\int_0^{\psi_0}\sqrt{P(\psi)}\,\tan(\psi/2)\,d\psi\bigr|^2}{\int_0^{\psi_0} P(\psi)\,\sin\psi\,d\psi}
+\bigl|E_{\text{ap}}(r)\bigr|^2 \;\propto\;
+P(\psi) \cdot \left(\tfrac{1 + \cos\psi}{2}\right)^{2}.
 $$
 
-why their product has an interior optimum in $f/D$, and why narrower
-feeds (bigger ESAs) shift that optimum toward shallower dishes.
-Reference: [`src/models/efficiency.ts`](../src/models/efficiency.ts).
+The $((1+\cos\psi)/2)^2$ factor comes from
+$\rho(\psi) = 2F/(1 + \cos\psi)$: energy falls off as $1/\rho^2$
+between focus and dish, and $(1+\cos\psi)/2$ is exactly
+$\rho_{\text{vertex}}/\rho(\psi)$. Deeper dishes have longer edge
+paths and thus a bigger space-loss dip at the rim on top of whatever
+$P(\psi_0)$ already gives.
+
+The scalar "edge taper" KPI is this same expression evaluated at
+$\psi = \psi_0$ and reported in dB relative to the on-axis value:
+
+```97:113:src/models/efficiency.ts
+export function edgeTaperDb(
+  feed: FeedInputs,
+  rimHalfAngleRad: number,
+): number {
+  const p = feedIntensityAxi(rimHalfAngleRad, feed);
+  if (p <= 0) return -60;
+  // Feed pattern in dB relative to peak
+  const patternDb = 10 * Math.log10(p);
+  // Space-loss factor from focus to rim vs focus to vertex:
+  // rho_rim / rho_vertex = 1 / cos^2(psi/2) ... but we express as dB penalty
+  // Space loss in intensity is 1/rho^2. rho(psi)/rho(0) = 1 / cos^2(psi/2)
+  // (since rho(0) = F and rho(psi) = 2F/(1+cos(psi)) = F/cos^2(psi/2)).
+  const rhoRatio = 1 / Math.pow(Math.cos(rimHalfAngleRad / 2), 2);
+  const spaceLossDb = -20 * Math.log10(rhoRatio);
+  return patternDb + spaceLossDb;
+}
+```
+
+$\eta_i$ is the integrated version of the same picture; edge taper
+is the pointwise summary at the worst point ($r = D/2$).
+
+### Why the product has an interior optimum in $f/D$
+
+Combine the two trends:
+
+| $f/D$ | $\psi_0$ | $\eta_s$ | $\eta_i$ | $\eta_s\,\eta_i$ |
+|-------|----------|----------|----------|------------------|
+| small (deep) | large | high — dish subtends most of $P$ | low — rim is dark, aperture heavily tapered | pulled down by $\eta_i$ |
+| large (shallow) | small | low — most of $P$ misses the rim | high — the sliver we see is near-peak | pulled down by $\eta_s$ |
+
+Neither extreme wins; the product peaks somewhere in the middle,
+typically $f/D \sim 0.3$–$0.5$ for the feed patterns this app
+supports. This is the interior optimum you see in "Efficiency vs
+f/D": the spillover curve rises, the illumination curve falls, and
+the aperture curve bulges in between.
+
+### Why narrower feeds shift the optimum shallower
+
+A bigger ESA (more elements, or wider element spacing) has a
+narrower $P(\psi)$: the main lobe drops off at smaller $\psi$. Now
+the two knobs re-tune:
+
+- **Spillover** is easier to keep high — a narrower beam spills less
+  even for a modest $\psi_0$.
+- **Illumination** becomes the binding constraint — you must keep
+  $\psi_0$ small enough that the rim still sees a healthy $P(\psi_0)$,
+  otherwise the aperture is dark at the edge.
+
+The way to satisfy both is to shrink $\psi_0$, which means a shallower
+dish. So the optimum $f/D$ moves right (toward $\sim 0.6$–$1.0$) as
+the feed narrows. This is the "bigger ESAs push the sweet spot
+shallower" statement in the "Efficiency vs f/D" caption and the
+"Gain vs array size" plot. It also feeds back into blockage (§4):
+bigger ESAs cast bigger shadows, and shallower dishes are exactly
+the geometry where that shadow costs the most fractional area.
+
+### One honest caveat
+
+$\phi$-averaging turns a rectangular-grid ESA into an axisymmetric
+equivalent feed, which is what makes Silver's 1-D integrals in $\psi$
+valid. A real rectangular array does not illuminate the aperture in
+perfect circular rings; it has slightly different taper along the
+principal planes vs the diagonals. For engineering trades at the
+level this app targets — pick $f/D$, size the array, budget spillover
+— the axisymmetric approximation is fine and matches Silver's
+classical results. If you care about that ~few-percent asymmetry
+(cross-pol lobes, sidelobe shape by cut), you want a PO solver, not
+this app. See [Caveats](#caveats--where-these-first-order-models-break).
 
 ## 4. Blockage
 
