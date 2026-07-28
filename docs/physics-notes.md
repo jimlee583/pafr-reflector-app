@@ -417,11 +417,129 @@ the link budget.
 
 ## 5. Beam Deviation Factor
 
-TBD — physical origin (feed offset produces beam tilt but not the full
-geometric angle), the empirical
-$(1 + 0.36 q^2)/(1 + q^2)$ form with $q = 1/(4\,f/D)$, and why
-BDF approaches 1 for shallow dishes and drops for deep ones.
-Reference: [`src/models/scan.ts`](../src/models/scan.ts).
+Displace a feed sideways off the focus — or electronically scan an ESA
+so the reflector *sees* an equivalent lateral displacement (§6) — and
+the sky beam tilts. It does **not** tilt by the full geometric feed
+angle. The ratio of those two angles is the Beam Deviation Factor:
+
+$$
+\text{BDF} \;=\;
+\frac{\theta_{\text{sky}}}{\theta_{\text{scan}}}
+\;\le\; 1.
+$$
+
+This is the number behind the "Sky beam angle" KPI
+($\theta_{\text{sky}} = \text{BDF}\,\theta_{\text{scan}}$) and the
+detail line `BDF = …` on that card. Everything lives in
+[`src/models/scan.ts`](../src/models/scan.ts).
+
+### Physical origin: why the beam undershoots the geometric angle
+
+A flat mirror obeys angle-of-incidence = angle-of-reflection, so a feed
+tilted by $\theta$ relative to the surface normal produces a reflected
+beam tilted by the same $\theta$. A paraboloid is not flat: every
+patch of the dish has its own local normal. When the feed moves off
+axis (or its phase front tilts), the path-length expansion on the
+aperture picks up a **linear** phase ramp — that is what re-points the
+beam — but the curved surface weights that ramp less efficiently than
+a flat plate would. The far-field peak therefore walks off by less than
+the feed angle:
+
+$$
+\theta_{\text{sky}} \;=\; \text{BDF}\,\theta_{\text{scan}},
+\qquad \text{BDF} < 1.
+$$
+
+The same linear term appeared in the aperture phase expansion of §6:
+
+$$
+\Delta(r,\phi)
+\;=\;
+\underbrace{\tfrac{\delta\,r}{F}\cos\phi}_{\text{linear (beam tilt)}}
+\;-\;
+\underbrace{\tfrac{\delta\,r^3}{4F^3}\cos\phi}_{\text{cubic (coma)}}
+\;+\;\cdots
+$$
+
+BDF is the bookkeeping for the linear term (re-pointing, no loss);
+coma is the bookkeeping for the cubic term (deformation, real loss).
+They are the two halves of one displaced-feed picture.
+
+### The empirical form
+
+Lo's widely-used approximation (and the one this app ships) is
+
+$$
+\text{BDF}
+\;=\;
+\frac{1 + 0.36\,q^{2}}{1 + q^{2}},
+\qquad
+q \;=\; \frac{1}{4\,f/D} \;=\; \frac{D}{4F}.
+$$
+
+```18:21:src/models/scan.ts
+export function beamDeviationFactor(fOverD: number): number {
+  const q = 1 / (4 * fOverD);
+  return (1 + 0.36 * q * q) / (1 + q * q);
+}
+```
+
+$q$ is a pure geometry parameter: it is large when the dish is deep
+(small $f/D$, large rim half-angle $\psi_0$) and small when the dish
+is shallow. The $0.36$ coefficient is not derived in this file — it is
+an empirical fit tuned to a typical feed taper (roughly the
+$-10\,\text{dB}$-edge class of illuminations Silver / Lo analyzed).
+Change the taper and the best-fit number moves a little; the functional
+shape in $q$ does not.
+
+### Why BDF $\to 1$ for shallow dishes and drops for deep ones
+
+| $f/D$ | $q$ | dish shape | BDF | intuition |
+|-------|-----|------------|-----|-----------|
+| large (shallow) | $\to 0$ | almost a flat plate over the aperture | $\to 1$ | local normals barely vary; reflection looks specular |
+| $\sim 0.4$–$0.5$ | $\sim 0.5$–$0.6$ | typical prime-focus | $\sim 0.85$–$0.90$ | the everyday operating point |
+| $\sim 0.3$ (deep) | $\sim 0.8$ | strongly curved | $\sim 0.75$–$0.80$ | rim normals tip a lot; the linear phase is diluted |
+
+That matches the code comment and the unit tests: `beamDeviationFactor(5)`
+is $> 0.99$, and `beamDeviationFactor(0.3) < beamDeviationFactor(1.0)`.
+
+### How the app uses it
+
+`scanPerformance` multiplies the commanded feed scan by BDF to get the
+sky angle, then feeds that sky angle into the coma-loss model (which
+counts **sky** beamwidths, not feed beamwidths):
+
+```38:48:src/models/scan.ts
+  const bdf = beamDeviationFactor(reflector.fOverD);
+  const skyBeamAngleRad = feedScanAngleRad * bdf;
+  // ...
+  const beamwidths = gain.hpbwRad > 0 ? skyBeamAngleRad / gain.hpbwRad : 0;
+  const comaLossDb = comaCoefficient(reflector.fOverD) * beamwidths * beamwidths;
+```
+
+Two consequences worth keeping straight:
+
+- For a given feed scan $\theta_{\text{scan}}$, a **deeper** dish
+  produces a *smaller* sky beam angle (lower BDF) — the beam
+  undershoots more.
+- Coma still hurts deeper dishes worse overall, because the
+  coma coefficient itself scales like $1/(f/D)^2$ (§6). BDF and
+  coma coefficient both depend on $q$; they just bookkeep different
+  pieces of the same displaced-feed expansion.
+
+### One honest caveat
+
+The $(1 + 0.36 q^2)/(1 + q^2)$ form is an **empirical fit for a
+particular illumination**, not an exact diffraction result. Real BDF
+also depends weakly on edge taper (more taper $\Rightarrow$ BDF a bit
+closer to 1, because the dark rim contributes less to the phase
+integral) and, at large scan, on the fact that the linear-phase
+picture itself is a small-displacement expansion. Within the few-HPBW
+regime this app claims, the fit is the standard one used in the
+antenna-engineering literature and is the right first-order knob.
+Beyond that, or if you care about the taper dependence explicitly, you
+want a PO scan sweep — see
+[Caveats](#caveats--where-these-first-order-models-break).
 
 ## 6. Scan loss: element rolloff + coma
 
