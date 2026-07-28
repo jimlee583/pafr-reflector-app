@@ -240,6 +240,18 @@ h3 {
   color: var(--text-dim);
 }
 
+.slider-controls {
+  display: grid;
+  grid-template-columns: 1fr 4.5rem;
+  gap: 8px;
+  align-items: center;
+}
+
+.slider-controls input[type="number"] {
+  width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+
 /* -------- KPI cards -------- */
 
 .kpi-grid {

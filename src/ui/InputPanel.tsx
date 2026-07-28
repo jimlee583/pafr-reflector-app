@@ -1,5 +1,5 @@
+import { useEffect, useState } from "react";
 import type { PAFRInputs } from "../models/types";
-import { fmtDeg, fmtGHz, fmtMeters } from "./format";
 
 interface Props {
   inputs: PAFRInputs;
@@ -25,7 +25,7 @@ export function InputPanel({ inputs, onChange }: Props) {
     <aside className="panel input-panel">
       <Section title="Reflector">
         <Slider
-          label={`Diameter D = ${fmtMeters(inputs.reflector.diameterM)}`}
+          label="Diameter D (m)"
           value={inputs.reflector.diameterM}
           min={0.1}
           max={10}
@@ -33,7 +33,7 @@ export function InputPanel({ inputs, onChange }: Props) {
           onChange={(v) => setR({ diameterM: v })}
         />
         <Slider
-          label={`f/D = ${inputs.reflector.fOverD.toFixed(2)}`}
+          label="f/D"
           value={inputs.reflector.fOverD}
           min={0.25}
           max={2.0}
@@ -44,7 +44,7 @@ export function InputPanel({ inputs, onChange }: Props) {
 
       <Section title="RF">
         <Slider
-          label={`Frequency = ${fmtGHz(inputs.rf.frequencyHz)}`}
+          label="Frequency (GHz)"
           value={inputs.rf.frequencyHz / 1e9}
           min={1}
           max={100}
@@ -73,7 +73,7 @@ export function InputPanel({ inputs, onChange }: Props) {
           />
         </Row>
         <Slider
-          label={`dx = ${inputs.feed.dxLambda.toFixed(2)} \u03bb`}
+          label={"dx (\u03bb)"}
           value={inputs.feed.dxLambda}
           min={0.3}
           max={1.5}
@@ -81,7 +81,7 @@ export function InputPanel({ inputs, onChange }: Props) {
           onChange={(v) => setF({ dxLambda: v, dyLambda: v })}
         />
         <Slider
-          label={`element cos^n, n = ${inputs.feed.elementCosExponentN.toFixed(1)}`}
+          label="element cos^n, n"
           value={inputs.feed.elementCosExponentN}
           min={0}
           max={4}
@@ -92,7 +92,7 @@ export function InputPanel({ inputs, onChange }: Props) {
 
       <Section title="Electronic scan">
         <Slider
-          label={`Feed scan = ${fmtDeg(inputs.scan.feedScanAngleRad, 2)}`}
+          label={"Feed scan (\u00b0)"}
           value={scanDeg}
           min={0}
           max={60}
@@ -132,18 +132,96 @@ interface SliderProps {
   onChange: (v: number) => void;
 }
 
+function clamp(v: number, min?: number, max?: number): number {
+  let next = v;
+  if (min !== undefined) next = Math.max(min, next);
+  if (max !== undefined) next = Math.min(max, next);
+  return next;
+}
+
+function EditableNumber({
+  value,
+  min,
+  max,
+  step,
+  onChange,
+}: {
+  value: number;
+  min?: number;
+  max?: number;
+  step?: number;
+  onChange: (v: number) => void;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  const [focused, setFocused] = useState(false);
+
+  useEffect(() => {
+    if (!focused) setDraft(String(value));
+  }, [value, focused]);
+
+  const commitDraft = (text: string) => {
+    const raw = Number(text);
+    if (!Number.isFinite(raw)) {
+      setDraft(String(value));
+      return;
+    }
+    const next = clamp(raw, min, max);
+    onChange(next);
+    setDraft(String(next));
+  };
+
+  return (
+    <input
+      type="number"
+      min={min}
+      max={max}
+      step={step}
+      value={focused ? draft : value}
+      onFocus={() => {
+        setFocused(true);
+        setDraft(String(value));
+      }}
+      onBlur={() => {
+        setFocused(false);
+        commitDraft(draft);
+      }}
+      onChange={(e) => {
+        const text = e.target.value;
+        setDraft(text);
+        const raw = Number(text);
+        if (!Number.isFinite(raw)) return;
+        if (min !== undefined && raw < min) return;
+        if (max !== undefined && raw > max) return;
+        onChange(raw);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+      }}
+    />
+  );
+}
+
 function Slider({ label, value, min, max, step, onChange }: SliderProps) {
   return (
     <label className="slider">
       <span>{label}</span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-      />
+      <div className="slider-controls">
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={(e) => onChange(clamp(Number(e.target.value), min, max))}
+        />
+        <EditableNumber
+          value={value}
+          min={min}
+          max={max}
+          step={step}
+          onChange={onChange}
+        />
+      </div>
     </label>
   );
 }
@@ -168,13 +246,12 @@ function NumberField({
   return (
     <label className="number">
       <span>{label}</span>
-      <input
-        type="number"
+      <EditableNumber
+        value={value}
         min={min}
         max={max}
         step={step}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
+        onChange={onChange}
       />
     </label>
   );
