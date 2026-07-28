@@ -668,10 +668,138 @@ app.
 
 ## 7. Grating lobes
 
-TBD — the $\sin\theta_g = \sin\theta_{\text{scan}} - m\lambda/d$
-condition, the "unconstrained if $d \le \lambda/2$" special case,
-and how the max-scan check in
-[`src/models/grating.ts`](../src/models/grating.ts) drops out of it.
+A phased array is a spatial sampler. When the element pitch $d$ is
+too wide relative to $\lambda$, the sampled aperture supports more
+than one propagating plane-wave solution — a grating lobe — and
+scanning the main beam eventually walks one of those aliases into
+visible space. This section is the story behind the "Grating-lobe
+safe scan" KPI and the check in
+[`src/models/grating.ts`](../src/models/grating.ts).
+
+### The array-factor condition
+
+For a uniform 1-D array of pitch $d$, scanned to
+$\theta_{\text{scan}}$, the array factor peaks wherever the
+inter-element phase wraps by an integer number of cycles:
+
+$$
+\sin\theta_g \;=\; \sin\theta_{\text{scan}} \;-\; m\,\frac{\lambda}{d},
+\qquad m = \pm 1,\,\pm 2,\,\ldots
+$$
+
+$m = 0$ is the main beam ($\theta_g = \theta_{\text{scan}}$). The
+first grating lobe that matters for scan is usually $m = +1$ or
+$m = -1$, sitting on the opposite side of broadside from the scanned
+beam. That is the same singularity the 1-D sinc in
+`arrayFactor1D` already knows about — the comment
+"limit as $x \to 0$ (or grating-lobe peaks)" in
+[`src/models/feed.ts`](../src/models/feed.ts) is exactly this
+condition, where the denominator
+$\sin(\pi\,d_\lambda\,u)$ also hits zero.
+
+### When the lobe enters real space
+
+Visible space is $|\sin\theta| \le 1$. The most aggressive grating
+lobe walks in from the horizon opposite the scan
+($\theta_g = -90^\circ$, $\sin\theta_g = -1$) when
+
+$$
+-1 \;=\; \sin\theta_{\text{scan}} \;-\; \frac{\lambda}{d}
+\qquad\Rightarrow\qquad
+\sin\theta_{\text{scan, max}} \;=\; \frac{\lambda}{d} - 1.
+$$
+
+That is the max-scan angle the app reports. Beyond it, a grating
+lobe is a real propagating direction, not an evanescent alias, and
+the feed starts dumping power into a second beam.
+
+```12:28:src/models/grating.ts
+export function gratingCheck(
+  feed: FeedInputs,
+  feedScanAngleRad: number,
+): GratingResult {
+  const maxPitchLambda = Math.max(feed.dxLambda, feed.dyLambda);
+  const arg = 1 / maxPitchLambda - 1;
+  let maxScanBeforeGratingRad: number;
+  if (arg >= 1) {
+    maxScanBeforeGratingRad = Math.PI / 2;
+  } else if (arg <= -1) {
+    maxScanBeforeGratingRad = 0;
+  } else {
+    maxScanBeforeGratingRad = Math.asin(arg);
+  }
+  const currentScanSafe =
+    Math.abs(feedScanAngleRad) <= maxScanBeforeGratingRad + 1e-9;
+  return { maxPitchLambda, maxScanBeforeGratingRad, currentScanSafe };
+}
+```
+
+The rectangular array has two pitches; the check uses
+$d_{\max} = \max(d_x, d_y)$ because the wider spacing is the one that
+grates first.
+
+### The "$d \le \lambda/2$" special case
+
+If $d \le \lambda/2$, then $\lambda/d - 1 \ge 1$. The right-hand
+side of the max-scan equation is already past $\sin\theta = 1$, so
+there is **no real $\theta_{\text{scan}}$** that brings a grating
+lobe into visible space — even a scan all the way to the horizon is
+clean. The code treats that as `arg >= 1` and reports
+$\theta_{\max} = \pi/2$, which the KPI card renders as
+"unlimited."
+
+That is why $\lambda/2$ spacing is the textbook default for
+wide-scan ESAs. Push $d$ above $\lambda/2$ and the allowed scan
+cone shrinks fast. A worked example from the unit tests: at
+$d = 0.9\,\lambda$,
+
+$$
+\sin\theta_{\max} \;=\; \tfrac{1}{0.9} - 1 \;\approx\; 0.111
+\qquad\Rightarrow\qquad
+\theta_{\max} \;\approx\; 6.4^\circ.
+$$
+
+At $d = \lambda$, $\theta_{\max} = 0$ — grating lobes sit exactly
+on the horizon even at broadside. Past $d = \lambda$, they are
+already inside visible space with the beam unscanned, and the check
+correctly refuses every nonzero scan.
+
+### What this means for the reflector
+
+Grating lobes are a property of the **feed**, not of the dish. Once
+one is in visible space it does two bad things to a prime-focus
+system:
+
+1. **Wasted power.** Energy that should have been in the main feed
+   beam is shared with a second lobe, so the on-axis feed directivity
+   drops and spillover / illumination integrals (§3) are no longer
+   computing what you think.
+2. **A second illumination path.** Depending on where $\theta_g$
+   points, that lobe may miss the dish entirely (pure spillover
+   loss) or light a different patch of the reflector (a second,
+   aberrated aperture contribution). Either way the single-beam
+   picture this app assumes is broken.
+
+The KPI is therefore a hard gate, not a soft efficiency factor:
+`currentScanSafe` flips the card to "CURRENT SCAN UNSAFE" the moment
+$|\theta_{\text{scan}}|$ exceeds $\theta_{\max}$. It does not try to
+fold grating-lobe power into $\eta_s$ or the scan-loss budget — once
+you are past the gate, the other first-order models are no longer
+trustworthy.
+
+### One honest caveat
+
+The $\sin\theta_g = \sin\theta_{\text{scan}} - m\lambda/d$ condition
+is for an ideal infinite (or large uniform) array in free space. Real
+ESAs soften it in both directions: the element pattern
+$\cos^{n}\theta$ partially suppresses wide-angle grating lobes, so
+the first lobe to enter visible space may be weaker than the array
+factor alone suggests; mutual coupling, scan blindness, and finite
+array size move the effective onset around. The app's check is the
+classical geometric gate — the angle at which a grating lobe
+*exists* in visible space — and it is the right first-order go/no-go
+for element pitch vs scan. Quantifying how much power that lobe
+actually carries wants a full-wave array model, not this app.
 
 ## Caveats & where these first-order models break
 
