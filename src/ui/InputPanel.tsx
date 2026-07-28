@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
-import type { PAFRInputs } from "../models/types";
+import type { FeedGeometry, PAFRInputs } from "../models/types";
+import { fmtAreaM2, fmtMeters } from "./format";
 
 interface Props {
   inputs: PAFRInputs;
+  feed: FeedGeometry;
   onChange: (next: PAFRInputs) => void;
 }
 
-export function InputPanel({ inputs, onChange }: Props) {
+export function InputPanel({ inputs, feed, onChange }: Props) {
   const set = <K extends keyof PAFRInputs>(key: K, value: PAFRInputs[K]) =>
     onChange({ ...inputs, [key]: value });
 
@@ -80,6 +82,21 @@ export function InputPanel({ inputs, onChange }: Props) {
           step={0.01}
           onChange={(v) => setF({ dxLambda: v, dyLambda: v })}
         />
+        <div className="derived">
+          <div>
+            Size{" "}
+            <strong>
+              {fmtMeters(feed.arraySizeXM)} &times; {fmtMeters(feed.arraySizeYM)}
+            </strong>
+          </div>
+          <div>
+            Area <strong>{fmtAreaM2(feed.blockageAreaM2)}</strong>
+          </div>
+          <div className="derived-hint">
+            L<sub>x</sub> = N<sub>x</sub>&middot;d<sub>x</sub>&middot;&lambda;,{" "}
+            L<sub>y</sub> = N<sub>y</sub>&middot;d<sub>y</sub>&middot;&lambda;
+          </div>
+        </div>
         <Slider
           label="element cos^n, n"
           value={inputs.feed.elementCosExponentN}
