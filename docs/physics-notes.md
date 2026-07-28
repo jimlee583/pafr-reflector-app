@@ -35,10 +35,176 @@ plane, feed at $(z, r) = (F, 0)$.
 
 ## 1. Reflector geometry
 
-TBD — rim half-angle $\psi_0 = 2\arctan\bigl(1/(4\,f/D)\bigr)$, depth
-$D^2/(16F)$, focus-to-rim distance from the polar equation
-$\rho(\psi) = 2F/(1 + \cos\psi)$, and where each of those shows up in
-[`src/models/geometry.ts`](../src/models/geometry.ts).
+Everything downstream — spillover, illumination, blockage area,
+coma, BDF — is keyed off two numbers: the dish diameter $D$ and the
+ratio $f/D$. From those the app builds the rest of the prime-focus
+paraboloid in
+[`src/models/geometry.ts`](../src/models/geometry.ts). This section
+derives the three quantities that keep showing up later: the rim
+half-angle $\psi_0$, the dish depth, and the focus-to-rim path length.
+
+### Inputs and the Cartesian parabola
+
+The only free geometry inputs are $D$ and $f/D$. Focal length is
+immediate:
+
+$$
+F \;=\; (f/D)\,D.
+$$
+
+With the vertex at the origin and the axis along $+z$ (skyward), the
+surface is the familiar Cartesian parabola
+
+$$
+z(r) \;=\; \frac{r^{2}}{4F},
+\qquad |r| \le D/2.
+$$
+
+That is `parabolaZ` — used to draw the side-view dish curve in the
+geometry panel:
+
+```37:39:src/models/geometry.ts
+export function parabolaZ(rM: number, focalLengthM: number): number {
+  return (rM * rM) / (4 * focalLengthM);
+}
+```
+
+The feed sits at the focus $(z, r) = (F, 0)$.
+
+### Depth
+
+Evaluate $z$ at the rim $r = D/2$:
+
+$$
+\text{depth} \;=\; z(D/2) \;=\; \frac{(D/2)^{2}}{4F} \;=\; \frac{D^{2}}{16F}.
+$$
+
+This is the axial distance from vertex to aperture plane, reported on
+the "Reflector focal length" KPI card as `depth = …`. Deeper dishes
+(small $f/D$) have larger depth; in the limit $f/D = 0.25$ the focus
+sits exactly in the aperture plane and depth $= F = D/4$.
+
+### Rim half-angle $\psi_0$
+
+$\psi$ is the angle at the **focus**, measured off the reflector axis,
+to a point on the dish. A standard parabola identity relates $\psi$ to
+aperture radius:
+
+$$
+\tan\!\bigl(\tfrac{\psi}{2}\bigr) \;=\; \frac{r}{2F}
+\qquad\Leftrightarrow\qquad
+\psi(r) \;=\; 2\arctan\!\bigl(\tfrac{r}{2F}\bigr).
+$$
+
+(The same map appears under the hood of the aperture-illumination plot
+in §3.) At the rim $r = D/2$:
+
+$$
+\tan\!\bigl(\tfrac{\psi_0}{2}\bigr)
+\;=\; \frac{D}{4F}
+\;=\; \frac{1}{4\,f/D},
+$$
+
+so
+
+$$
+\psi_0 \;=\; 2\arctan\!\bigl(\tfrac{1}{4\,f/D}\bigr).
+$$
+
+```17:20:src/models/geometry.ts
+  const F = fOverD * D;
+  const psi0 = 2 * Math.atan(1 / (4 * fOverD));
+  const depth = (D * D) / (16 * F);
+  const focusToRim = (2 * F) / (1 + Math.cos(psi0));
+```
+
+Useful landmarks:
+
+| $f/D$ | $\psi_0$ | shape |
+|-------|----------|-------|
+| $0.25$ | $90^\circ$ | focus in the aperture plane; dish sees the whole forward hemisphere |
+| $0.4$ | $\sim 64^\circ$ | typical prime-focus operating point |
+| $0.5$ | $\sim 53^\circ$ | unit-test sanity check (`2\arctan(0.5)`) |
+| large | $\to 0$ | shallow dish; focus far behind a nearly flat aperture |
+
+$\psi_0$ is the upper limit on every Silver integral in §3
+(`spilloverEfficiency`, `illuminationEfficiency`, `edgeTaperDb`), and
+it is the angle drawn as the arc at the focus in the geometry side
+view. Note also that the BDF / coma parameter of §§5–6,
+
+$$
+q \;=\; \frac{1}{4\,f/D} \;=\; \tan\!\bigl(\tfrac{\psi_0}{2}\bigr),
+$$
+
+is exactly this same geometric quantity — deep vs shallow is one knob
+shared across the whole file.
+
+### Polar equation and focus-to-rim distance
+
+Measured from the focus, the distance to a surface point at angle
+$\psi$ is the polar form of the same parabola:
+
+$$
+\rho(\psi) \;=\; \frac{2F}{1 + \cos\psi}.
+$$
+
+Checks: $\rho(0) = F$ (focus to vertex), and at the rim
+
+$$
+\rho(\psi_0) \;=\; \frac{2F}{1 + \cos\psi_0}
+\;=\; \texttt{focusToRimM}.
+$$
+
+The $1/\rho^{2}$ intensity falloff between focus and dish is the
+**space-loss** factor in the aperture illumination and edge-taper
+KPIs (§3). Because $\rho(\psi)/\rho(0) = 1/\cos^{2}(\psi/2)$, the
+rim is always farther from the feed than the vertex is, and deeper
+dishes (larger $\psi_0$) take a bigger space-loss hit at the edge on
+top of whatever the feed pattern $P(\psi_0)$ already gives.
+
+### Aperture area
+
+The projected aperture (not the curved surface area) is just
+
+$$
+A_{\text{dish}} \;=\; \pi\bigl(D/2\bigr)^{2}.
+$$
+
+That is the denominator of the blockage fraction in §4 and the
+physical area that sets peak directivity once the efficiencies are
+folded in.
+
+### Where each quantity lands in the app
+
+| Quantity | Formula | Consumers |
+|----------|---------|-----------|
+| $F$ | $(f/D)\,D$ | side-view drawing, $\psi(r)$, scan / coma models |
+| $\psi_0$ | $2\arctan(1/(4\,f/D))$ | spillover, illumination, edge taper; geometry arc |
+| depth | $D^{2}/(16F)$ | KPI detail; aperture-plane drawing |
+| $\rho(\psi_0)$ | $2F/(1+\cos\psi_0)$ | space-loss / edge taper |
+| $A_{\text{dish}}$ | $\pi(D/2)^{2}$ | blockage $\eta_b$, gain |
+
+```12:31:src/models/geometry.ts
+export function reflectorGeometry(inputs: ReflectorInputs): ReflectorGeometry {
+  const { diameterM: D, fOverD } = inputs;
+  // ...
+  const F = fOverD * D;
+  const psi0 = 2 * Math.atan(1 / (4 * fOverD));
+  const depth = (D * D) / (16 * F);
+  const focusToRim = (2 * F) / (1 + Math.cos(psi0));
+  const aperture = Math.PI * (D / 2) * (D / 2);
+  return {
+    fOverD, diameterM: D, focalLengthM: F,
+    rimHalfAngleRad: psi0, depthM: depth,
+    focusToRimM: focusToRim, apertureAreaM2: aperture,
+  };
+}
+```
+
+No caveat beyond the obvious: this is ideal geometric optics on a
+perfect paraboloid of revolution. Surface RMS error, strut shadows,
+and feed-support scattering are all deferred to the
+[Caveats](#caveats--where-these-first-order-models-break).
 
 ## 2. Feed model
 
