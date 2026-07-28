@@ -262,11 +262,158 @@ this app. See [Caveats](#caveats--where-these-first-order-models-break).
 
 ## 4. Blockage
 
-TBD — where the $\eta_b = (1 - A_{\text{block}}/A_{\text{dish}})^2$
-form comes from, when it under- or over-estimates the true impact
-(scattered-power vs simple aperture-area picture), and why offset
-optics is the standard fix. Reference:
-[`src/models/efficiency.ts`](../src/models/efficiency.ts).
+In a prime-focus dish the feed sits on the axis, squarely in the way of
+the outgoing (or incoming) aperture field. That physical shadow is
+blockage, and it is the third factor in the aperture-efficiency product
+$\eta_{\text{ap}} = \eta_s\,\eta_i\,\eta_b$. This section is the story
+behind the "Blockage eff." KPI and the gap between the solid and dashed
+curves in "Gain vs array size."
+
+### Where the shadow comes from
+
+The ESA at the focus has a physical footprint. In this app that
+footprint is just the array's projected rectangle:
+
+$$
+A_{\text{block}} \;=\; (N_x\,d_x\,\lambda)\,(N_y\,d_y\,\lambda),
+$$
+
+with no struts, no cables, no feed housing — the array alone. The dish
+aperture is $A_{\text{dish}} = \pi (D/2)^2$. The fractional area lost
+to the shadow is therefore
+
+$$
+f \;=\; \frac{A_{\text{block}}}{A_{\text{dish}}}.
+$$
+
+```103:119:src/models/feed.ts
+export function feedGeometry(
+  feed: FeedInputs,
+  frequencyHz: number,
+): FeedGeometry {
+  const wavelengthM = wavelengthFromFrequency(frequencyHz);
+  const arraySizeXM = feed.Nx * feed.dxLambda * wavelengthM;
+  const arraySizeYM = feed.Ny * feed.dyLambda * wavelengthM;
+  const blockageAreaM2 = arraySizeXM * arraySizeYM;
+  // ...
+```
+
+### Why the efficiency is squared
+
+Set the aperture field to zero inside the shadow and leave it alone
+outside. On boresight the far-field voltage is the coherent integral of
+that aperture field. For a roughly uniform illumination the integral
+shrinks exactly with the remaining area:
+
+$$
+E \;=\; E_0\,(1 - f).
+$$
+
+Gain (and on-axis power) goes as $|E|^2$, so
+
+$$
+\eta_b \;=\; (1 - f)^2 \;=\;
+\left(1 - \frac{A_{\text{block}}}{A_{\text{dish}}}\right)^{2}.
+$$
+
+An equivalent picture: the blocked aperture radiates like the full
+aperture *minus* a fictitious "negative" aperture the size of the
+shadow. On boresight those two voltage contributions subtract in
+proportion to area, and again the power ratio is $(1-f)^2$. The square
+is not a free parameter — it is the voltage-to-power step.
+
+```68:75:src/models/efficiency.ts
+export function blockageEfficiency(
+  apertureAreaM2: number,
+  blockageAreaM2: number,
+): number {
+  if (apertureAreaM2 <= 0) return 0;
+  const frac = Math.max(0, 1 - blockageAreaM2 / apertureAreaM2);
+  return clamp01(frac * frac);
+}
+```
+
+A few useful numbers from the same formula: $f = 0.05$ costs only
+$\eta_b \approx 0.90$ (about $0.4\,\text{dB}$); $f = 0.10$ drops to
+$\eta_b \approx 0.81$ ($\sim 0.9\,\text{dB}$); $f = 0.25$ is already
+$\eta_b = 0.56$ ($\sim 2.5\,\text{dB}$). The penalty grows faster than
+the area fraction itself because of that square.
+
+### Why bigger arrays and shallower dishes hurt most
+
+$A_{\text{block}}$ grows with $N_x N_y$ and with $\lambda^2$ (element
+pitch is counted in wavelengths), while $A_{\text{dish}}$ is fixed by
+$D$. So:
+
+- **Bigger ESAs** cast bigger shadows. That is exactly the dashed-vs-solid
+  gap in "Gain vs array size": growing $N$ improves spillover / lets you
+  run a shallower $f/D$, but $\eta_b$ falls as $N^2$ and eventually
+  wins.
+- **Shallower dishes** do not change $A_{\text{block}}$ or
+  $A_{\text{dish}}$ directly — both are projected areas — but they are
+  exactly the geometry §3 pushes you toward once the feed narrows. The
+  optical sweet spot and the blockage penalty therefore move in opposite
+  directions as the array grows: you want shallow for $\eta_s\eta_i$,
+  and you pay for it in $\eta_b$ because the larger array that justified
+  the shallow dish is the same array casting the shadow.
+
+### When $(1-f)^2$ under- or over-estimates
+
+The formula is a **uniform-illumination, geometric-shadow** model. Real
+blockage differs in three ways that can push the number either direction:
+
+1. **Taper.** Typical feeds light the aperture brightest on axis — right
+   where the feed's own shadow sits. Removing the brightest patch costs
+   more coherent field than the area fraction $f$ suggests, so true
+   $\eta_b$ is *lower* than $(1-f)^2$. The formula is optimistic
+   (underestimates loss) for center-peaked illuminations.
+2. **Scattered power.** The feed and its supports do not simply "delete"
+   aperture field; they re-radiate. That scattered field interferes with
+   the main aperture contribution. Depending on electrical size and
+   phase, the interference can deepen the on-axis null (worse than the
+   area model) or partially refill it (better). The simple model ignores
+   this entirely.
+3. **RF vs optical shadow.** As Ruze pointed out, the radio-frequency
+   shadow of a strut or feed is typically wider than its geometric
+   silhouette, so the effective $f$ is larger than $A_{\text{block}}/
+   A_{\text{dish}}$. Again the area formula underestimates the hit.
+   Struts are omitted in this app altogether, which is another reason
+   the KPI is a lower bound on the real blockage penalty.
+
+Net: for the engineering trades this app targets — is the array getting
+too big for this $D$? — $(1-f)^2$ is the right order of magnitude and
+the right monotonic trend. For a number you would put in a review
+package, you want a PO run that includes the feed housing and struts as
+scattering bodies. See [Caveats](#caveats--where-these-first-order-models-break).
+
+### Why offset optics is the standard fix
+
+Once $A_{\text{block}}/A_{\text{dish}}$ is no longer negligible, the
+clean fix is geometric: stop putting the feed in the aperture's way.
+An **offset** (or offset-fed) reflector uses only a portion of a parent
+paraboloid whose focus sits *outside* the used aperture, so the feed's
+shadow misses the radiating area entirely and $\eta_b \to 1$. That is
+why almost every consumer satellite dish, and most modern large
+reflector systems that care about aperture efficiency, are offset.
+
+The trade is not free — offset geometry brings beam squint,
+cross-polarization, and a more awkward feed-support structure — but it
+removes the $N^2$ collision between "bigger array for better
+illumination" and "bigger array for worse blockage" that prime-focus
+designs cannot escape. This app models the prime-focus case on purpose:
+blockage is one of the knobs the trade plots are meant to make visible.
+
+### One honest caveat
+
+$\eta_b = (1 - A_{\text{block}}/A_{\text{dish}})^2$ is an
+aperture-area bookkeeping identity under uniform illumination, not a
+full electromagnetic treatment of a feed sitting in front of a dish.
+It does not know about strut scattering, feed-housing diffraction,
+multiple-reflection paths between feed and reflector, or the fact that
+an ESA is an extended partially-transparent object rather than a hard
+rectangular mask. Treat the blockage KPI as a first-order tax on array
+size, and escalate to a PO/MoM model when that tax starts to dominate
+the link budget.
 
 ## 5. Beam Deviation Factor
 
