@@ -255,13 +255,13 @@ A uniform $N$-element line array of pitch $d$ (in wavelengths) has the
 classic normalized array factor
 
 $$
-\operatorname{AF}_{1\mathrm{D}}(u)
+\mathrm{AF}_{1\mathrm{D}}(u)
 \;=\;
 \left|
 \frac{\sin(N\pi\,d\,u)}{N\sin(\pi\,d\,u)}
 \right|,
 \qquad
-\operatorname{AF}_{1\mathrm{D}}(0) = 1.
+\mathrm{AF}_{1\mathrm{D}}(0) = 1.
 $$
 
 Here $u$ is the direction cosine along the array axis
@@ -269,10 +269,10 @@ Here $u$ is the direction cosine along the array axis
 grid is separable, so the 2-D factor is just the product
 
 $$
-\operatorname{AF}(\theta,\phi)
+\mathrm{AF}(\theta,\phi)
 \;=\;
-\operatorname{AF}_{1\mathrm{D}}(u_x;\,N_x,d_x)\,
-\operatorname{AF}_{1\mathrm{D}}(u_y;\,N_y,d_y).
+\mathrm{AF}_{1\mathrm{D}}(u_x;\,N_x,d_x)\,
+\mathrm{AF}_{1\mathrm{D}}(u_y;\,N_y,d_y).
 $$
 
 ```34:40:src/models/feed.ts
@@ -301,7 +301,7 @@ $$
 \bigl|F(\theta,\phi)\bigr|^{2}
 \;=\;
 \bigl|E_{\text{el}}(\theta)\bigr|^{2}\,
-\bigl|\operatorname{AF}(\theta,\phi)\bigr|^{2},
+\bigl|\mathrm{AF}(\theta,\phi)\bigr|^{2},
 $$
 
 normalized so the boresight value is 1:
