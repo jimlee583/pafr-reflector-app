@@ -19,6 +19,10 @@ interface Props {
  *
  * Origin = dish vertex.
  * Focus at (z = F, x = 0). Rim points at (D^2/(16F), +/- D/2).
+ *
+ * The SVG viewport is fixed; world geometry is uniformly scaled to fit.
+ * Absolute D cancels out for a given f/D (self-similar), so the on-screen
+ * size does not grow with diameter.
  */
 export function GeometryView({ result, feedScanAngleRad }: Props) {
   const {
@@ -27,21 +31,30 @@ export function GeometryView({ result, feedScanAngleRad }: Props) {
     scan: { skyBeamAngleRad },
   } = result;
 
-  // Compute world-space bounding box for the drawing.
+  // Fixed compact viewport — geometry is fit inside, independent of D.
+  const svgW = 620;
+  const svgH = 260;
+  const PAD = 16;
+
+  // World-space bounding box for the drawing.
   const zMin = -0.15 * F;
   const zMax = Math.max(F, depthM) * 1.35;
   const xExtent = (D / 2) * 1.25;
-
   const worldW = zMax - zMin;
   const worldH = 2 * xExtent;
-  const PAD = 12;
-  const targetW = 620;
-  const scale = (targetW - 2 * PAD) / worldW;
+
+  // Uniform scale to fit both axes; center leftover space.
+  const scale = Math.min(
+    (svgW - 2 * PAD) / worldW,
+    (svgH - 2 * PAD) / worldH,
+  );
+  const offsetX = PAD + ((svgW - 2 * PAD) - worldW * scale) / 2;
+  const offsetY = PAD + ((svgH - 2 * PAD) - worldH * scale) / 2;
 
   const w2s = (z: number, x: number) => {
     // world -> svg (svg y is down, so flip x)
-    const sx = PAD + (z - zMin) * scale;
-    const sy = PAD + (xExtent - x) * scale;
+    const sx = offsetX + (z - zMin) * scale;
+    const sy = offsetY + (xExtent - x) * scale;
     return { sx, sy };
   };
 
@@ -61,10 +74,7 @@ export function GeometryView({ result, feedScanAngleRad }: Props) {
     }
     return "M " + pts.join(" L ");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [D, F, scale, zMin, xExtent]);
-
-  const svgW = targetW;
-  const svgH = worldH * scale + 2 * PAD;
+  }, [D, F, scale, zMin, xExtent, offsetX, offsetY]);
 
   const vertex = w2s(0, 0);
   const focus = w2s(F, 0);
@@ -117,15 +127,14 @@ export function GeometryView({ result, feedScanAngleRad }: Props) {
     <div className="geometry-view">
       <svg
         width="100%"
-        height={svgH}
         viewBox={`0 0 ${svgW} ${svgH}`}
         preserveAspectRatio="xMidYMid meet"
       >
         {/* Axis of symmetry */}
         <line
-          x1={PAD}
+          x1={offsetX}
           y1={vertex.sy}
-          x2={svgW - PAD}
+          x2={offsetX + worldW * scale}
           y2={vertex.sy}
           stroke="var(--border)"
           strokeDasharray="4 4"
