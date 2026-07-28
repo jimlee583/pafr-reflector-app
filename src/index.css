@@ -252,6 +252,27 @@ h3 {
   font-variant-numeric: tabular-nums;
 }
 
+.derived {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text);
+  padding: 6px 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.derived strong {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.derived-hint {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
 /* -------- KPI cards -------- */
 
 .kpi-grid {

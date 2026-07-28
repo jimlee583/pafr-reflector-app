@@ -1,5 +1,6 @@
 import type { PAFRResult } from "../models/types";
 import {
+  fmtAreaM2,
   fmtDb,
   fmtDbi,
   fmtDeg,
@@ -47,7 +48,7 @@ export function KpiCards({ result }: Props) {
       value: fmtPct(result.efficiencies.blockage),
       detail: `array ${fmtMeters(result.feed.arraySizeXM)} \u00d7 ${fmtMeters(
         result.feed.arraySizeYM,
-      )}`,
+      )} (${fmtAreaM2(result.feed.blockageAreaM2)})`,
     },
     {
       label: "HPBW",

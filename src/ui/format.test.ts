@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  fmtAreaM2,
   fmtDb,
   fmtDbi,
   fmtDeg,
@@ -26,6 +27,11 @@ describe("format", () => {
   it("switches meters to mm below 1 cm", () => {
     expect(fmtMeters(0.005)).toBe("5.0 mm");
     expect(fmtMeters(1.234)).toBe("1.234 m");
+  });
+
+  it("switches area to cm^2 below 0.01 m^2", () => {
+    expect(fmtAreaM2(0.001)).toBe("10.0 cm\u00b2");
+    expect(fmtAreaM2(0.25)).toBe("0.250 m\u00b2");
   });
 
   it("formats GHz", () => {

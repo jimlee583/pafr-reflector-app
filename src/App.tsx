@@ -29,7 +29,7 @@ export default function App() {
         <AssumptionsDrawer />
       </header>
       <div className="app-body">
-        <InputPanel inputs={inputs} onChange={setInputs} />
+        <InputPanel inputs={inputs} feed={result.feed} onChange={setInputs} />
         <main className="app-main">
           <section className="panel kpis">
             <h2>KPIs</h2>

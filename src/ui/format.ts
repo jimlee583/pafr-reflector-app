@@ -26,6 +26,12 @@ export function fmtMeters(m: number, digits: number = 3): string {
   return `${m.toFixed(digits)} m`;
 }
 
+export function fmtAreaM2(m2: number, digits: number = 3): string {
+  if (!Number.isFinite(m2)) return "\u2014";
+  if (Math.abs(m2) < 0.01) return `${(m2 * 1e4).toFixed(1)} cm\u00b2`;
+  return `${m2.toFixed(digits)} m\u00b2`;
+}
+
 export function fmtGHz(hz: number, digits: number = 2): string {
   if (!Number.isFinite(hz)) return "\u2014";
   return `${(hz / 1e9).toFixed(digits)} GHz`;
