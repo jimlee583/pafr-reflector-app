@@ -208,10 +208,206 @@ and feed-support scattering are all deferred to the
 
 ## 2. Feed model
 
-TBD — element voltage pattern $\cos^{n}\theta$, rectangular-array
-factor as a product of 1-D sincs, $\phi$-averaged intensity used for
-the axisymmetric reflector integrals. Reference:
-[`src/models/feed.ts`](../src/models/feed.ts).
+The reflector is illuminated by a rectangular ESA sitting at the focus.
+The feed model in [`src/models/feed.ts`](../src/models/feed.ts) builds
+that pattern in three layers — element, array factor, then a
+$\phi$-average that turns the rectangular grid into something the
+axisymmetric dish integrals of §3 can digest. Peak is normalized to 1
+at boresight; absolute scale cancels in every efficiency ratio
+downstream.
+
+### Element pattern: $\cos^{n}\theta$
+
+Each element has a voltage pattern
+
+$$
+E_{\text{el}}(\theta) \;=\; \cos^{n}\theta,
+\qquad \theta < \pi/2,
+$$
+
+and is identically zero at and beyond $\theta = \pi/2$ (no
+back-hemisphere radiation — the element sits on a ground plane). Power
+goes as $\cos^{2n}\theta$. The exponent $n$ is a user knob:
+
+| $n$ | Rough element type |
+|-----|--------------------|
+| $1$ | Huygens-like / short dipole over ground |
+| $1.5$–$2$ | Patch on a ground plane (the app default is $1.5$) |
+
+```19:25:src/models/feed.ts
+export function elementVoltage(thetaRad: number, n: number): number {
+  const c = Math.cos(thetaRad);
+  // Snap tiny cosines (e.g., Math.cos(pi/2) ~ 6e-17) to zero so the pattern
+  // is truly zero at and beyond 90 deg regardless of the exponent.
+  if (c <= 1e-12) return 0;
+  return Math.pow(c, n);
+}
+```
+
+Two places this shows up again: (i) spillover's total-power integral
+stops at $\pi/2$ rather than $\pi$ because there is nothing to
+integrate past the horizon (§3); (ii) electronic scan pays an element
+rolloff of $-10\log_{10}(\cos^{2n}\theta_{\text{scan}})$ dB (§6).
+
+### Array factor: product of 1-D sincs
+
+A uniform $N$-element line array of pitch $d$ (in wavelengths) has the
+classic normalized array factor
+
+$$
+\operatorname{AF}_{1\mathrm{D}}(u)
+\;=\;
+\left|
+\frac{\sin(N\pi\,d\,u)}{N\sin(\pi\,d\,u)}
+\right|,
+\qquad
+\operatorname{AF}_{1\mathrm{D}}(0) = 1.
+$$
+
+Here $u$ is the direction cosine along the array axis
+($u = \sin\theta\cos\phi$ or $\sin\theta\sin\phi$). The rectangular
+grid is separable, so the 2-D factor is just the product
+
+$$
+\operatorname{AF}(\theta,\phi)
+\;=\;
+\operatorname{AF}_{1\mathrm{D}}(u_x;\,N_x,d_x)\,
+\operatorname{AF}_{1\mathrm{D}}(u_y;\,N_y,d_y).
+$$
+
+```34:40:src/models/feed.ts
+export function arrayFactor1D(u: number, N: number, dLambda: number): number {
+  const x = Math.PI * dLambda * u;
+  const denom = N * Math.sin(x);
+  const num = Math.sin(N * x);
+  if (Math.abs(denom) < 1e-12) return 1; // limit as x -> 0 (or grating-lobe peaks)
+  return num / denom;
+}
+```
+
+The same zeros that set the first sidelobe nulls
+($u = 1/(N d)$ for a uniform array) are also the grating-lobe peaks
+when $d$ is large — that singularity is what §7 turns into a max-scan
+gate. Amplitude taper is currently locked to `"uniform"` (an extension
+point in the type); a non-uniform taper would replace the sinc with a
+weighted Dirichlet kernel but would not change the rest of the
+pipeline.
+
+### Full intensity
+
+Putting the layers together:
+
+$$
+\bigl|F(\theta,\phi)\bigr|^{2}
+\;=\;
+\bigl|E_{\text{el}}(\theta)\bigr|^{2}\,
+\bigl|\operatorname{AF}(\theta,\phi)\bigr|^{2},
+$$
+
+normalized so the boresight value is 1:
+
+```46:59:src/models/feed.ts
+export function feedIntensity(
+  thetaRad: number,
+  phiRad: number,
+  feed: FeedInputs,
+): number {
+  const ev = elementVoltage(thetaRad, feed.elementCosExponentN);
+  if (ev === 0) return 0;
+  const s = Math.sin(thetaRad);
+  const ux = s * Math.cos(phiRad);
+  const uy = s * Math.sin(phiRad);
+  const afx = arrayFactor1D(ux, feed.Nx, feed.dxLambda);
+  const afy = arrayFactor1D(uy, feed.Ny, feed.dyLambda);
+  const af = afx * afy;
+  return ev * ev * af * af;
+}
+```
+
+Bigger $N$ or larger $d$ (within the grating-lobe limit) narrows the
+main lobe: that is the lever §3 uses when it says "narrower feeds
+shift the $f/D$ optimum shallower."
+
+### $\phi$-averaged intensity $P(\psi)$
+
+The dish rim is a circle of half-angle $\psi_0$. Silver's spillover and
+illumination integrals are therefore 1-D in $\psi$, which requires an
+axisymmetric feed intensity. A rectangular ESA is not axisymmetric, so
+the app $\phi$-averages:
+
+$$
+P(\theta)
+\;=\;
+\bigl\langle \bigl|F(\theta,\phi)\bigr|^{2} \bigr\rangle_{\phi}.
+$$
+
+Because a rectangular grid has 90° symmetry it is enough to average
+over $\phi \in [0,\pi/2]$:
+
+```66:79:src/models/feed.ts
+export function feedIntensityAxi(
+  thetaRad: number,
+  feed: FeedInputs,
+  nPhi: number = 32,
+): number {
+  // For a rectangular grid the pattern has 90-degree symmetry, so we only
+  // need to average over phi in [0, pi/2] and it matches the full azimuth
+  // average. Trapezoidal midpoint average is fine here.
+  let sum = 0;
+  for (let i = 0; i < nPhi; i++) {
+    const phi = ((i + 0.5) / nPhi) * (Math.PI / 2);
+    sum += feedIntensity(thetaRad, phi, feed);
+  }
+  return sum / nPhi;
+}
+```
+
+For a centered, unscanned feed at the focus, the feed angle $\theta$
+coincides with the reflector angle $\psi$, so $P(\psi)$ is exactly
+what §3 integrates. Peak remains 1 at $\psi = 0$.
+
+### Peak feed directivity and physical size
+
+Two bookkeeping outputs come along for free. Peak feed directivity
+from the usual definition, reduced to a $\phi$-averaged integral over
+the forward hemisphere:
+
+$$
+D_f
+\;=\;
+\frac{4\pi\,P_{\max}}
+     {\displaystyle\int |F|^{2}\,d\Omega}
+\;=\;
+\frac{4\pi}
+     {2\pi\displaystyle\int_{0}^{\pi/2} P(\theta)\,\sin\theta\,d\theta},
+$$
+
+since $P_{\max} = 1$. That is the "Feed directivity" KPI. Physical
+array size is just pitch times count times wavelength,
+
+$$
+A_{\text{block}}
+\;=\;
+(N_x\,d_x\,\lambda)\,(N_y\,d_y\,\lambda),
+$$
+
+which becomes the blockage area of §4. Both are assembled in
+`feedGeometry`.
+
+### One honest caveat
+
+This is an **ideal uniform array of identical $\cos^{n}\theta$
+elements**: no mutual coupling, no active-impedance variation with
+scan, no feed-housing pattern, no amplitude taper beyond uniform, and
+a $\phi$-average that erases the principal-plane vs diagonal asymmetry
+of a real rectangular grid. Those idealizations are fine for the
+trades this app targets — size the array, pick $f/D$, budget spillover
+vs blockage — and they match the classical Silver / Balanis
+feed-pattern assumptions. Once you care about scan blindness,
+cross-pol, or the few-percent azimuthal asymmetry in aperture taper,
+you want a full-wave array model feeding a PO reflector solver. See
+[Caveats](#caveats--where-these-first-order-models-break) and the
+matching caveat at the end of §3.
 
 ## 3. Spillover vs illumination trade
 
