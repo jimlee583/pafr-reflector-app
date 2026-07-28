@@ -31,15 +31,15 @@ export default function App() {
       <div className="app-body">
         <InputPanel inputs={inputs} onChange={setInputs} />
         <main className="app-main">
+          <section className="panel kpis">
+            <h2>KPIs</h2>
+            <KpiCards result={result} />
+          </section>
           <section className="panel geometry">
             <h2>Side view</h2>
             <GeometryView result={result} feedScanAngleRad={inputs.scan.feedScanAngleRad} />
             <h2 style={{ marginTop: 12 }}>Aperture illumination (radial cut)</h2>
             <IlluminationView inputs={inputs} result={result} />
-          </section>
-          <section className="panel kpis">
-            <h2>KPIs</h2>
-            <KpiCards result={result} />
           </section>
           <section className="panel plots">
             <h2>Trade curves</h2>
