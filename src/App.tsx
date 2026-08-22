@@ -1,17 +1,34 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { computePAFR } from "./models";
 import type { PAFRInputs } from "./models/types";
-import { AssumptionsDrawer } from "./ui/AssumptionsDrawer";
 import { DEFAULT_INPUTS } from "./ui/defaults";
 import { GeometryView } from "./ui/GeometryView";
 import { IlluminationView } from "./ui/IlluminationView";
 import { InputPanel } from "./ui/InputPanel";
 import { KpiCards } from "./ui/KpiCards";
+import { ModelSheet } from "./ui/ModelSheet";
 import { TradePlots } from "./ui/TradePlots";
 
 export default function App() {
   const [inputs, setInputs] = useState<PAFRInputs>(DEFAULT_INPUTS);
   const result = useMemo(() => computePAFR(inputs), [inputs]);
+
+  const [sheet, setSheet] = useState<{ open: boolean; focusId?: string }>({
+    open: false,
+  });
+  const openEquation = useCallback(
+    (id: string) => setSheet({ open: true, focusId: id }),
+    [],
+  );
+  const toggleSheet = useCallback(
+    () =>
+      setSheet((s) => ({ open: !s.open, focusId: s.open ? undefined : s.focusId })),
+    [],
+  );
+  const closeSheet = useCallback(
+    () => setSheet({ open: false, focusId: undefined }),
+    [],
+  );
 
   return (
     <div className="app">
@@ -26,14 +43,19 @@ export default function App() {
         >
           reset defaults
         </button>
-        <AssumptionsDrawer />
+        <ModelSheet
+          open={sheet.open}
+          focusId={sheet.focusId}
+          onToggle={toggleSheet}
+          onClose={closeSheet}
+        />
       </header>
       <div className="app-body">
         <InputPanel inputs={inputs} feed={result.feed} onChange={setInputs} />
         <main className="app-main">
           <section className="panel kpis">
             <h2>KPIs</h2>
-            <KpiCards result={result} />
+            <KpiCards result={result} onOpenEquation={openEquation} />
           </section>
           <section className="panel geometry">
             <h2>Side view</h2>

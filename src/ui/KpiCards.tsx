@@ -1,4 +1,6 @@
 import type { PAFRResult } from "../models/types";
+import { Equation } from "./Equation";
+import { KPI_FORMULA_HINT, KPI_TO_EQUATION_ID } from "./equations";
 import {
   fmtAreaM2,
   fmtDb,
@@ -11,6 +13,7 @@ import {
 
 interface Props {
   result: PAFRResult;
+  onOpenEquation?: (equationId: string) => void;
 }
 
 interface Card {
@@ -20,7 +23,7 @@ interface Card {
   tone?: "good" | "warn" | "bad" | "neutral";
 }
 
-export function KpiCards({ result }: Props) {
+export function KpiCards({ result, onOpenEquation }: Props) {
   const cards: Card[] = [
     {
       label: "Gain (broadside)",
@@ -101,13 +104,29 @@ export function KpiCards({ result }: Props) {
 
   return (
     <div className="kpi-grid">
-      {cards.map((c) => (
-        <div key={c.label} className={`kpi ${c.tone ?? "neutral"}`}>
-          <div className="kpi-label">{c.label}</div>
-          <div className="kpi-value">{c.value}</div>
-          {c.detail && <div className="kpi-detail">{c.detail}</div>}
-        </div>
-      ))}
+      {cards.map((c) => {
+        const equationId = KPI_TO_EQUATION_ID[c.label];
+        const formula = KPI_FORMULA_HINT[c.label];
+        return (
+          <div key={c.label} className={`kpi ${c.tone ?? "neutral"}`}>
+            <div className="kpi-label">{c.label}</div>
+            <div className="kpi-value">{c.value}</div>
+            {c.detail && <div className="kpi-detail">{c.detail}</div>}
+            {formula && (
+              <button
+                type="button"
+                className="kpi-formula"
+                onClick={() => equationId && onOpenEquation?.(equationId)}
+                disabled={!equationId || !onOpenEquation}
+                title="Show derivation"
+                aria-label={`Show equation for ${c.label}`}
+              >
+                <Equation latex={formula} display={false} />
+              </button>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
